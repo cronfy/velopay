@@ -99,6 +99,9 @@ class Gateway extends AbstractGateway
                 }
 
                 throw new \Exception("Unknown pending response");
+            case 'processing':
+                $this->status = static::STATUS_PENDING; // платежная система думает, нужно подождать
+                break;
             case 'waiting_for_capture':
                 if (!$this->getInvoice()->isAmountEqualsTo($data['amount']['value'], $data['amount']['currency'])) {
                     throw new \Exception("Wrong amount for capture");
