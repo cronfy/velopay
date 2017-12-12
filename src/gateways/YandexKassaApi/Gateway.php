@@ -128,6 +128,9 @@ class Gateway extends AbstractGateway
                 }
 
                 $this->status = static::STATUS_PAID;
+                $this->statusDetails = [
+                    'paymentFqid' => $this->getSid() . '.' . $data['id']
+                ];
                 break;
             case 'canceled':
                 $this->getInvoice()->getStorage()->ensureDelete();
@@ -187,7 +190,20 @@ class Gateway extends AbstractGateway
         $options['headers'] = [
             'Idempotence-Key' => $this->getIdempotenceKey($uri),
         ];
-        return $this->getClient()->request($method, $uri, $options);
+
+        $logger = $this->getLog();
+
+        if ($logger) {
+            $logger->request($method, $uri, $options);
+        }
+
+        $response = $this->getClient()->request($method, $uri, $options);
+
+        if ($logger) {
+            $logger->response($response);
+        }
+
+        return $response;
     }
 
 }

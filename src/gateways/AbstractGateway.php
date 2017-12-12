@@ -28,7 +28,7 @@ abstract class AbstractGateway
 
     public $status;
     public $statusDetails;
-
+    
     protected $_invoice;
     public function setInvoice(InvoiceInterface $invoice) {
         $this->_invoice = $invoice;
@@ -52,6 +52,14 @@ abstract class AbstractGateway
 
     public function setSid($value) {
         $this->_sid = $value;
+    }
+
+    protected $_log;
+    public function getLog() {
+        return $this->_log;
+    }
+    public function setLog($value) {
+        $this->_log = $value;
     }
 
 
