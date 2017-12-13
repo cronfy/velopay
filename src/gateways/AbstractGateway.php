@@ -23,6 +23,8 @@ abstract class AbstractGateway
     const STATUS_PAID = 'paid';
     // платеж отменен
     const STATUS_CANCELED = 'canceled';
+    // ошибка
+    const STATUS_ERROR = 'error';
 
     public $testMode;
 

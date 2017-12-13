@@ -74,6 +74,16 @@ class Gateway extends AbstractGateway
 
         $result = null;
 
+        if (@$data['type'] === 'processing') {
+            $this->status = static::STATUS_PENDING; // платежная система думает, нужно подождать
+            return;
+        }
+
+        if (@$data['type'] === 'error') {
+            $this->status = static::STATUS_ERROR; // неустранимая ошибка
+            return;
+        }
+
         switch ($data['status']) {
             case 'pending':
                 // TODO:
@@ -99,9 +109,6 @@ class Gateway extends AbstractGateway
                 }
 
                 throw new \Exception("Unknown pending response");
-            case 'processing':
-                $this->status = static::STATUS_PENDING; // платежная система думает, нужно подождать
-                break;
             case 'waiting_for_capture':
                 if (!$this->getInvoice()->isAmountEqualsTo($data['amount']['value'], $data['amount']['currency'])) {
                     throw new \Exception("Wrong amount for capture");
@@ -113,7 +120,7 @@ class Gateway extends AbstractGateway
                     ],
                 ]);
                 $data = json_decode($response->getBody(), true);
-                if ($data['status'] === 'waiting_for_capture') {
+                if (@$data['status'] === 'waiting_for_capture') {
                     // такого быть не должно, но на всякий случай не будем уходить здесь в рекурсию
                     $this->status = static::STATUS_PENDING; // платежная система думает, нужно подождать
                     break;
