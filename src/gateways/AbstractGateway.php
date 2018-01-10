@@ -43,6 +43,14 @@ abstract class AbstractGateway
     {
         return $this->_invoice;
     }
+    
+    protected function getStorage() {
+        return $this->getInvoice()->getStorage();
+    }
+
+    public function destroySession() {
+        $this->getInvoice()->getStorage()->ensureDelete();
+    }
 
     abstract public function start();
 

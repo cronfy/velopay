@@ -88,7 +88,6 @@ class BaseGateway extends AbstractGateway
 
         switch ($data['status']) {
             case 'pending':
-                // TODO:
                 // 1. есть pending, когда paid = 0 и есть  confirmation->confirmation_url - тогда надо перенаправить
                 // посетителя на ЯК для оплаты.
                 // 2. А есть pending, paid = 1 и нет confirmation->confirmation_url, то есть заказ оплачен,
@@ -145,7 +144,6 @@ class BaseGateway extends AbstractGateway
                 ];
                 break;
             case 'canceled':
-                $this->getInvoice()->getStorage()->ensureDelete();
                 $this->status = static::STATUS_CANCELED;
                 break;
             default:
@@ -176,10 +174,6 @@ class BaseGateway extends AbstractGateway
         ]);
 
         return $client;
-    }
-
-    protected function getStorage() {
-        return $this->getInvoice()->getStorage();
     }
 
     protected function getIdempotenceKey($uri) {
