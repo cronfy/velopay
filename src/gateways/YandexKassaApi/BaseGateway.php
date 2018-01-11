@@ -11,7 +11,7 @@ namespace cronfy\velopay\gateways\YandexKassaApi;
 use cronfy\velopay\gateways\AbstractGateway;
 use cronfy\velopay\InvoiceInterface;
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\BadResponseException;
 use Ramsey\Uuid\Uuid;
 use yii\db\Exception;
 use GuzzleHttp\Psr7;
@@ -53,13 +53,18 @@ class BaseGateway extends AbstractGateway
             }
 //            D($requestData);
             $response = $this->request('POST', 'payments', [], $requestData);
-        } catch (ClientException $e) {
+        } catch (BadResponseException $e) {
+//            echo "\n*\n* REQUEST\n*\n";
 //            echo Psr7\str($e->getRequest());
 //            if ($e->hasResponse()) {
+//                echo "\n*\n* RESPONSE\n*\n";
 //                echo Psr7\str($e->getResponse());
 //            }
 //
-//            D($e->getMessage());
+//            echo "\n*\n* MESSAGE\n*\n";
+//            echo $e->getMessage();
+//            echo "***\n";
+
             throw $e;
         }
 
@@ -114,6 +119,21 @@ class BaseGateway extends AbstractGateway
                 if (!$this->getInvoice()->isAmountEqualsTo($data['amount']['value'], $data['amount']['currency'])) {
                     throw new \Exception("Wrong amount for capture");
                 }
+                // Сейчас здесь мы безусловно делаем capture - забираем деньги.
+                // Однако это также точка, в которой можно отказаться от приема платежа.
+                // Может потребоваться ответ от контроллера: требуется забрать деньги или отклонить
+                // платеж.
+
+                // TODO: нужно реализовать взаимодействие с контроллером в этом месте.
+                // Но не хочется перегружать интерфейс взаимодействия через статусы. Возможность сделать/отклонить
+                // capture - это уже особенности конкретного гейта, и контроллер может о них не знать
+                // (у других гейтов могут быть и другие особенности). Лучше так - контроллер по умолчанию
+                // будет предполагать, что платеж принимается без вопросов, а гейт по умолчанию вопросов
+                // задавать не будет. Но если хочется организовать взаимодействие, касающееся нюансов конкретного
+                // гейта, это можно сделать через callback'и, например `$this->callbacks['waiting_for_capture'].
+                // Если callback'а нет - переходим к capture, если есть и вернул true - тоже, если false - выходим
+                // со статусом PENDING (тогда можно в `$this->statusDetails` добавить информацию о том,
+                // что capture был возможен, но отклонен).
                 $response = $this->request('POST', 'payments/' . $data['id'] . '/capture' , [], [
                     'amount' => [
                         'value' => $this->getInvoice()->getAmountValue(),
