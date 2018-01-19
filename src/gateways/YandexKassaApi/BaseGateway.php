@@ -75,6 +75,13 @@ class BaseGateway extends AbstractGateway
         return $this->start();
     }
 
+    public function payment($id) {
+        $response = $this->get('payments/' . $id);
+
+        $data = json_decode($response->getBody(), true);
+        return $data;
+    }
+
     public function processResponse($response) {
         $data = json_decode($response->getBody(), true);
 //        D((string)$response->getBody());
@@ -230,6 +237,63 @@ class BaseGateway extends AbstractGateway
         }
 
         return $response;
+    }
+
+    protected function post($uri, $idempotenceKey, $queryArgs = [], $payload = null) {
+        $options = ['query' => []];
+        if ($queryArgs) $options['query'] = array_merge($options['query'], $queryArgs);
+        if ($payload) $options['json'] = $payload;
+        $options['headers'] = [
+            'Idempotence-Key' => $idempotenceKey,
+        ];
+        $options['auth'] = [$this->shopId, $this->shopPassword];
+
+        $logger = $this->getLog();
+
+        if ($logger) {
+            $logger->request('POST', $uri, $options);
+        }
+
+        $response = $this->getClient()->request('POST', $uri, $options);
+
+        if ($logger) {
+            $logger->response($response);
+        }
+
+        return $response;
+    }
+
+    protected function get($uri, $queryArgs = [], $payload = null) {
+        $options = ['query' => []];
+        if ($queryArgs) $options['query'] = array_merge($options['query'], $queryArgs);
+        if ($payload) $options['json'] = $payload;
+        $options['auth'] = [$this->shopId, $this->shopPassword];
+
+        $logger = $this->getLog();
+
+        if ($logger) {
+            $logger->request('GET', $uri, $options);
+        }
+
+        $response = $this->getClient()->request('GET', $uri, $options);
+
+        if ($logger) {
+            $logger->response($response);
+        }
+
+        return $response;
+    }
+
+    public function capture($paymentId, $value, $currency, $idempotenceKey) {
+        $response = $this->post('payments/' . $paymentId . '/capture' , $idempotenceKey, [], [
+            'amount' => [
+                'value' => $value,
+                'currency' => $currency,
+            ],
+        ]);
+
+        $data = json_decode($response->getBody(), true);
+        return $data;
     }
 
 }
