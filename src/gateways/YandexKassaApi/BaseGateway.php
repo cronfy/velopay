@@ -12,10 +12,16 @@ use cronfy\velopay\gateways\AbstractGateway;
 use cronfy\velopay\InvoiceInterface;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\BadResponseException;
+use Psr\Http\Message\ResponseInterface;
 use Ramsey\Uuid\Uuid;
 use yii\db\Exception;
 use GuzzleHttp\Psr7;
 
+/**
+ * TODO:
+ *
+ * 1. Запросы к API должны возвращать не Response, а массив с ответом.
+ */
 class BaseGateway extends AbstractGateway
 {
     public $shopId;
@@ -33,6 +39,13 @@ class BaseGateway extends AbstractGateway
     {
         /** @var InvoiceInterface $invoice */
         $invoice = $this->getInvoice();
+
+        $storage = $this->getStorage();
+
+        if (isset($storage->data['payment_id'])) {
+            // Payment id already registered
+            return $this->process();
+        };
 
         try {
             $requestData = [
@@ -53,6 +66,11 @@ class BaseGateway extends AbstractGateway
             }
 //            D($requestData);
             $response = $this->request('POST', 'payments', [], $requestData);
+            // save payment_id
+            $data = json_decode($response->getBody(), true);
+            $storage->getData()['payment_id'] = $data['id'];
+            // remember confirmation_url
+            $storage->getData()['confirmation_url'] = $data['confirmation']['confirmation_url'];
         } catch (BadResponseException $e) {
 //            echo "\n*\n* REQUEST\n*\n";
 //            echo Psr7\str($e->getRequest());
@@ -68,23 +86,47 @@ class BaseGateway extends AbstractGateway
             throw $e;
         }
 
-        return $this->processResponse($response);
+        return $this->processResponse($data);
     }
 
     public function process() {
-        return $this->start();
+        /**
+         * Изначально каждый раз для обработки платежа мы делали start().
+         * (Здесь все просто форвардилось в start()).
+         * Это работало нормально, в том случае, если начало и конец оплаты
+         * происходили в одни и те же сутки (т. е. пока не исчетет срок действия
+         * IdempotenceKey): по тому же start() ЯК отдавала тот же payment_id, так как IdempotenceKey и все прочие данные совпадали. Однако если оплата длилась дольше (например, при оплате через терминалы), возникали проблемы: ключ идемпотентности истекал, и на start() ЯК создавала новый платеж с нашим старым IdempotenceKey, и мы никак не могли узнать, чем закончилась исходная оплата - мы не могли к ней обратиться, так как не знали payment_id.
+         * Поэтому теперь в start() мы сохраняем payment_id и некоторые другие вспопогательные данные для обработки конкретно ЭТОГО платежа.
+         * А в process достаём payment_id и работаем с платежом по нему.
+         */
+        $storageData = $this->getStorage()->getData();
+        if (!isset($storageData['payment_id'])) {
+            // TODO: раньше payment_id не хранился в storage.
+            // Если его нет, обработаем запрос по-старому через start.
+            // Когда такие платежи закончатся, нужно будет бросать exception
+            // при отсутствии payment_id.
+            return $this->start();
+            throw new \Exception("Can not process without payment id");
+        }
+
+        $payment = $this->payment($storageData['payment_id']);
+        return $this->processResponse($payment);
     }
 
     public function payment($id) {
-        $response = $this->get('payments/' . $id);
-
-        $data = json_decode($response->getBody(), true);
+        $data = $this->get('payments/' . $id);
         return $data;
     }
 
-    public function processResponse($response) {
-        $data = json_decode($response->getBody(), true);
-//        D((string)$response->getBody());
+    public function processResponse($data) {
+        if (is_a($data, ResponseInterface::class)) {
+            /**
+             * @deprecated : раньше ответ приходил в виде Response,
+             * а теперь (см. TODO наверху) двигаемся к тому, чтобы
+             * он приходил в виде array.
+             */
+            $data = json_decode($data->getBody(), true);
+        }
 
         $result = null;
 
@@ -118,6 +160,22 @@ class BaseGateway extends AbstractGateway
                 // 2. Нужно подождать.
                 if (isset($data['paid']) && $data['paid']) {
                     $this->status = static::STATUS_PENDING;
+                    break;
+                }
+
+                $storage = $this->getStorage();
+                if (isset($storage->data['confirmation_url'])) {
+                    // 3. В storage есть confirmation_url. Значит, платеж был инициирован ранее.
+                    // Значит, сейчас мы обращаемся к нему повторно по /payments/{id}, а в таком
+                    // случае Яндекс не возвращает confirmation_url.
+                    // Но запрос все еще pending. Если бы клиент заплатил, здесь было бы
+                    // waiting_for_capture. Значит, он еще не заплатил, и то, что здесь нужно
+                    // сделать - либо инициировать платеж повторно и пройти по пути start, либо (что
+                    // проще и предсказуемее) - перейти по сохраненному в start() url.
+                    $this->status = static::STATUS_SUGGEST_USER_REDIRECT;
+                    $this->statusDetails = [
+                        'url' => $storage->data['confirmation_url'],
+                    ];
                     break;
                 }
 
@@ -281,7 +339,9 @@ class BaseGateway extends AbstractGateway
             $logger->response($response);
         }
 
-        return $response;
+        $data = json_decode($response->getBody(), true);
+
+        return $data;
     }
 
     public function capture($paymentId, $value, $currency, $idempotenceKey) {
