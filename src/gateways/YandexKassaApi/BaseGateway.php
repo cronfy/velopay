@@ -69,6 +69,8 @@ class BaseGateway extends AbstractGateway
             // save payment_id
             $data = json_decode($response->getBody(), true);
             $storage->getData()['payment_id'] = $data['id'];
+            // по этому идентификатору мы сможем найти транзакцию в момент получения нотифмкации от YK
+            $storage->setGatewaySid($data['id']);
             // remember confirmation_url
             $storage->getData()['confirmation_url'] = $data['confirmation']['confirmation_url'];
         } catch (BadResponseException $e) {

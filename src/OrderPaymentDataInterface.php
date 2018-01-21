@@ -52,4 +52,14 @@ interface OrderPaymentDataInterface
      */
     public function setData($value);
 
+    /**
+     * @param $sid string
+     * @return void
+     */
+    public function setGatewaySid($sid);
+
+    /**
+     * @return string
+     */
+    public function getGatewaySid();
 }
