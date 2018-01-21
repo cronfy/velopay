@@ -10,6 +10,7 @@ namespace cronfy\velopay\gateways;
 
 
 use cronfy\velopay\InvoiceInterface;
+use cronfy\velopay\OrderPaymentDataInterface;
 
 abstract class AbstractGateway
 {
@@ -43,13 +44,24 @@ abstract class AbstractGateway
     {
         return $this->_invoice;
     }
-    
-    protected function getStorage() {
-        return $this->getInvoice()->getStorage();
+
+    /**
+     * @var OrderPaymentDataInterface
+     */
+    protected $_storage;
+    public function setStorage(OrderPaymentDataInterface $value) {
+        $this->_storage = $value;
+    }
+
+    /**
+     * @return OrderPaymentDataInterface
+     */
+    public function getStorage() {
+        return $this->_storage;
     }
 
     public function destroySession() {
-        $this->getInvoice()->getStorage()->ensureDelete();
+        $this->getStorage()->ensureDelete();
     }
 
     abstract public function start();
