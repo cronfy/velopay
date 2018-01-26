@@ -45,26 +45,8 @@ abstract class AbstractGateway
         return $this->_invoice;
     }
 
-    /**
-     * @var OrderPaymentDataInterface
-     */
-    protected $_storage;
-    public function setStorage(OrderPaymentDataInterface $value) {
-        $this->_storage = $value;
-    }
-
-    /**
-     * @return OrderPaymentDataInterface
-     */
-    public function getStorage() {
-        return $this->_storage;
-    }
-
-    public function destroySession() {
-        $this->getStorage()->ensureDelete();
-    }
-
     abstract public function start();
+    abstract public function process();
 
     protected $_sid;
 
@@ -82,6 +64,14 @@ abstract class AbstractGateway
     }
     public function setLog($value) {
         $this->_log = $value;
+    }
+
+    protected $_returnUrl;
+    public function getReturnUrl() {
+        return $this->_returnUrl;
+    }
+    public function setReturnUrl($value) {
+        $this->_returnUrl = $value;
     }
 
 

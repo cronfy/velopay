@@ -11,5 +11,10 @@ namespace cronfy\velopay\gateways\YandexKassaTerminalApi;
 use cronfy\velopay\gateways\YandexKassaApi\BaseGateway;
 
 class Gateway extends BaseGateway {
-    public $payment_method = 'cash';
+
+    public function getPaymentMethod()
+    {
+        return 'cash';
+    }
+
 }

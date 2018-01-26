@@ -22,29 +22,26 @@ use GuzzleHttp\Psr7;
  *
  * 1. Запросы к API должны возвращать не Response, а массив с ответом.
  */
-class BaseGateway extends AbstractGateway
+abstract class BaseGateway extends AbstractGateway
 {
     public $shopId;
     public $shopPassword;
 
-    public $returnUrl;
-
     public $debug = false;
 
     public $receipt = false;
-    
-    public $payment_method;
+
+    abstract public function getPaymentMethod();
 
     public function start()
     {
         /** @var InvoiceInterface $invoice */
         $invoice = $this->getInvoice();
 
-        $storage = $this->getStorage();
+        $gatewayData = $invoice->getGatewayData();
 
-        if (isset($storage->data['payment_id'])) {
-            // Payment id already registered
-            return $this->process();
+        if (isset($gatewayData['payment_id'])) {
+            throw new \Exception("Invoice processing already started");
         };
 
         try {
@@ -54,11 +51,11 @@ class BaseGateway extends AbstractGateway
                     'currency' => $invoice->getAmountCurrency(),
                 ],
                 'payment_method_data' => [
-                    'type' => $this->payment_method,
+                    'type' => $this->getPaymentMethod(),
                 ],
                 "confirmation" => [
                     'type' => 'redirect',
-                    "return_url" => $this->returnUrl
+                    "return_url" => $this->getReturnUrl()
                 ],
             ];
             if ($this->receipt) {
@@ -68,11 +65,11 @@ class BaseGateway extends AbstractGateway
             $response = $this->request('POST', 'payments', [], $requestData);
             // save payment_id
             $data = json_decode($response->getBody(), true);
-            $storage->getData()['payment_id'] = $data['id'];
+            $gatewayData['payment_id'] = $data['id'];
             // по этому идентификатору мы сможем найти транзакцию в момент получения нотифмкации от YK
-            $storage->setGatewaySid($data['id']);
+            $invoice->setGatewayTransactionSid($data['id']);
             // remember confirmation_url
-            $storage->getData()['confirmation_url'] = $data['confirmation']['confirmation_url'];
+            $gatewayData['confirmation_url'] = $data['confirmation']['confirmation_url'];
         } catch (BadResponseException $e) {
 //            echo "\n*\n* REQUEST\n*\n";
 //            echo Psr7\str($e->getRequest());
@@ -92,26 +89,14 @@ class BaseGateway extends AbstractGateway
     }
 
     public function process() {
-        /**
-         * Изначально каждый раз для обработки платежа мы делали start().
-         * (Здесь все просто форвардилось в start()).
-         * Это работало нормально, в том случае, если начало и конец оплаты
-         * происходили в одни и те же сутки (т. е. пока не исчетет срок действия
-         * IdempotenceKey): по тому же start() ЯК отдавала тот же payment_id, так как IdempotenceKey и все прочие данные совпадали. Однако если оплата длилась дольше (например, при оплате через терминалы), возникали проблемы: ключ идемпотентности истекал, и на start() ЯК создавала новый платеж с нашим старым IdempotenceKey, и мы никак не могли узнать, чем закончилась исходная оплата - мы не могли к ней обратиться, так как не знали payment_id.
-         * Поэтому теперь в start() мы сохраняем payment_id и некоторые другие вспопогательные данные для обработки конкретно ЭТОГО платежа.
-         * А в process достаём payment_id и работаем с платежом по нему.
-         */
-        $storageData = $this->getStorage()->getData();
-        if (!isset($storageData['payment_id'])) {
-            // TODO: раньше payment_id не хранился в storage.
-            // Если его нет, обработаем запрос по-старому через start.
-            // Когда такие платежи закончатся, нужно будет бросать exception
-            // при отсутствии payment_id.
-            return $this->start();
+        /** @var InvoiceInterface $invoice */
+        $invoice = $this->getInvoice();
+        $gatewayData = $invoice->getGatewayData();
+        if (!isset($gatewayData['payment_id'])) {
             throw new \Exception("Can not process without payment id");
         }
 
-        $payment = $this->payment($storageData['payment_id']);
+        $payment = $this->payment($gatewayData['payment_id']);
         return $this->processResponse($payment);
     }
 
@@ -165,8 +150,9 @@ class BaseGateway extends AbstractGateway
                     break;
                 }
 
-                $storage = $this->getStorage();
-                if (isset($storage->data['confirmation_url'])) {
+                $gatewayData = $this->getInvoice()->getGatewayData();
+
+                if (isset($gatewayData['confirmation_url'])) {
                     // 3. В storage есть confirmation_url. Значит, платеж был инициирован ранее.
                     // Значит, сейчас мы обращаемся к нему повторно по /payments/{id}, а в таком
                     // случае Яндекс не возвращает confirmation_url.
@@ -176,7 +162,7 @@ class BaseGateway extends AbstractGateway
                     // проще и предсказуемее) - перейти по сохраненному в start() url.
                     $this->status = static::STATUS_SUGGEST_USER_REDIRECT;
                     $this->statusDetails = [
-                        'url' => $storage->data['confirmation_url'],
+                        'url' => $gatewayData['confirmation_url'],
                     ];
                     break;
                 }
@@ -241,6 +227,10 @@ class BaseGateway extends AbstractGateway
 //        D($result);
     }
 
+    /**
+     * @return string
+     * @throws Exception
+     */
     protected function getKassaUrl() {
         if ($this->testMode) {
             throw new Exception("Not implemented");
@@ -250,6 +240,7 @@ class BaseGateway extends AbstractGateway
 
     /**
      * @return Client
+     * @throws Exception
      */
     protected function getClient() {
         $client = new Client([
@@ -264,15 +255,13 @@ class BaseGateway extends AbstractGateway
     }
 
     protected function getIdempotenceKey($uri) {
-       $storage = $this->getStorage();
-       $data = $storage->getData();
+       $gatewayData = $this->getInvoice()->getGatewayData();
        $storageKey = $this->getSid() . '.IdempotenceKey.' . $uri;
-       if (!isset($data[$storageKey])) {
-           $data[$storageKey] = Uuid::uuid4()->toString();
-           $storage->setData($data);
+       if (!isset($gatewayData[$storageKey])) {
+           $gatewayData[$storageKey] = Uuid::uuid4()->toString();
        }
 
-        return $data[$storageKey];
+        return $gatewayData[$storageKey];
     }
 
     protected function request($method, $uri, $queryArgs = [], $payload = null) {
