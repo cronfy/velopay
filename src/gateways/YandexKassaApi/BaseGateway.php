@@ -12,6 +12,7 @@ use cronfy\velopay\gateways\AbstractGateway;
 use cronfy\velopay\InvoiceInterface;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\BadResponseException;
+use GuzzleHttp\Exception\ClientException;
 use Psr\Http\Message\ResponseInterface;
 use Ramsey\Uuid\Uuid;
 use yii\db\Exception;
@@ -279,7 +280,22 @@ abstract class BaseGateway extends AbstractGateway
             $logger->request($method, $uri, $options);
         }
 
-        $response = $this->getClient()->request($method, $uri, $options);
+        try {
+            $response = $this->getClient()->request($method, $uri, $options);
+        } catch (ClientException $e) {
+            throw $e;
+////            echo "\n*\n* REQUEST\n*\n";
+//            echo Psr7\str($e->getRequest());
+//            if ($e->hasResponse()) {
+//                echo "\n*\n* RESPONSE\n*\n";
+//                echo Psr7\str($e->getResponse());
+//            }
+//
+//            echo "\n*\n* MESSAGE\n*\n";
+//            echo $e->getMessage();
+//            echo "***\n";
+//            D();
+        }
 
         if ($logger) {
             $logger->response($response);
