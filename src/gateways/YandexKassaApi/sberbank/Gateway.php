@@ -6,7 +6,7 @@
  * Time: 13:36
  */
 
-namespace cronfy\velopay\gateways\YandexKassaTerminalApi;
+namespace cronfy\velopay\gateways\YandexKassaApi\sberbank;
 
 use cronfy\velopay\gateways\YandexKassaApi\BaseGateway;
 
@@ -14,7 +14,7 @@ class Gateway extends BaseGateway {
 
     public function getPaymentMethod()
     {
-        return 'cash';
+        return 'sberbank';
     }
 
 }

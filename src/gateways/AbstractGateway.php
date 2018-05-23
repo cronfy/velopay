@@ -48,16 +48,6 @@ abstract class AbstractGateway
     abstract public function start();
     abstract public function process();
 
-    protected $_sid;
-
-    public function getSid() {
-        return $this->_sid;
-    }
-
-    public function setSid($value) {
-        $this->_sid = $value;
-    }
-
     protected $_log;
     public function getLog() {
         return $this->_log;

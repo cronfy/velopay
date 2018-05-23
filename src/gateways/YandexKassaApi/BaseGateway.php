@@ -18,11 +18,6 @@ use Ramsey\Uuid\Uuid;
 use yii\db\Exception;
 use GuzzleHttp\Psr7;
 
-/**
- * TODO:
- *
- * 1. Запросы к API должны возвращать не Response, а массив с ответом.
- */
 abstract class BaseGateway extends AbstractGateway
 {
     public $shopId;
@@ -60,17 +55,21 @@ abstract class BaseGateway extends AbstractGateway
                 ],
             ];
             if ($this->receipt) {
+                // для поддержки чеков модель Invoice должна поддерживать специфичный для
+                // YandexKassa метод getReceiptData()
+                // Возвращаемое значение - массив в соответствии с документацией YK по полю receipt
+                // https://kassa.yandex.ru/docs/checkout-api/#sozdanie-platezha
                 $requestData['receipt'] = $invoice->getReceiptData();
             }
 //            D($requestData);
-            $response = $this->request('POST', 'payments', [], $requestData);
-            // save payment_id
-            $data = json_decode($response->getBody(), true);
+            $data = $this->post('payments', [], $requestData);
             $gatewayData['payment_id'] = $data['id'];
             // по этому идентификатору мы сможем найти транзакцию в момент получения нотифмкации от YK
-            $invoice->setGatewayTransactionSid($data['id']);
+            $invoice->setGatewayInvoiceSid($data['id']);
             // remember confirmation_url
             $gatewayData['confirmation_url'] = $data['confirmation']['confirmation_url'];
+
+            $invoice->setGatewayData($gatewayData);
         } catch (BadResponseException $e) {
 //            echo "\n*\n* REQUEST\n*\n";
 //            echo Psr7\str($e->getRequest());
@@ -107,15 +106,6 @@ abstract class BaseGateway extends AbstractGateway
     }
 
     public function processResponse($data) {
-        if (is_a($data, ResponseInterface::class)) {
-            /**
-             * @deprecated : раньше ответ приходил в виде Response,
-             * а теперь (см. TODO наверху) двигаемся к тому, чтобы
-             * он приходил в виде array.
-             */
-            $data = json_decode($data->getBody(), true);
-        }
-
         $result = null;
 
         if (@$data['type'] === 'processing') {
@@ -188,20 +178,20 @@ abstract class BaseGateway extends AbstractGateway
                 // Если callback'а нет - переходим к capture, если есть и вернул true - тоже, если false - выходим
                 // со статусом PENDING (тогда можно в `$this->statusDetails` добавить информацию о том,
                 // что capture был возможен, но отклонен).
-                $response = $this->request('POST', 'payments/' . $data['id'] . '/capture' , [], [
+                $data = $this->post('payments/' . $data['id'] . '/capture' , [], [
                     'amount' => [
                         'value' => $this->getInvoice()->getAmountValue(),
                         'currency' => $this->getInvoice()->getAmountCurrency(),
                     ],
                 ]);
-                $data = json_decode($response->getBody(), true);
                 if (@$data['status'] === 'waiting_for_capture') {
                     // такого быть не должно, но на всякий случай не будем уходить здесь в рекурсию
                     $this->status = static::STATUS_PENDING; // платежная система думает, нужно подождать
                     break;
                 }
 
-                $result = $this->processResponse($response);
+                // мы сделали еще один запрос (capture), получили новый ответ и пойдем его опять обрабатывать
+                $this->processResponse($data);
                 break;
             case 'succeeded':
                 if (!$this->getInvoice()->isAmountEqualsTo($data['amount']['value'], $data['amount']['currency'])) {
@@ -213,19 +203,13 @@ abstract class BaseGateway extends AbstractGateway
                 }
 
                 $this->status = static::STATUS_PAID;
-                $this->statusDetails = [
-                    'paymentFqid' => $this->getSid() . '.' . $data['id']
-                ];
                 break;
             case 'canceled':
                 $this->status = static::STATUS_CANCELED;
                 break;
             default:
-                D(['NEW STATUS', $data]);
                 throw new \Exception("Unknown status");
         }
-
-//        D($result);
     }
 
     /**
@@ -256,13 +240,17 @@ abstract class BaseGateway extends AbstractGateway
     }
 
     protected function getIdempotenceKey($uri) {
-       $gatewayData = $this->getInvoice()->getGatewayData();
-       $storageKey = $this->getSid() . '.IdempotenceKey.' . $uri;
-       if (!isset($gatewayData[$storageKey])) {
-           $gatewayData[$storageKey] = Uuid::uuid4()->toString();
-       }
+        $invoice = $this->getInvoice();
+        $gatewayData = $invoice->getGatewayData();
 
-        return $gatewayData[$storageKey];
+        $storageKey = 'IdempotenceKey.' . $uri;
+        if (!isset($gatewayData[$storageKey])) {
+            $gatewayData[$storageKey] = Uuid::uuid4()->toString();
+        }
+
+        $invoice->setGatewayData($gatewayData);
+
+       return $gatewayData[$storageKey];
     }
 
     protected function request($method, $uri, $queryArgs = [], $payload = null) {
@@ -284,12 +272,15 @@ abstract class BaseGateway extends AbstractGateway
             $response = $this->getClient()->request($method, $uri, $options);
         } catch (ClientException $e) {
             throw $e;
-////            echo "\n*\n* REQUEST\n*\n";
-//            echo Psr7\str($e->getRequest());
+//            echo "\n*\n* REQUEST\n*\n";
+//            $request = $e->getRequest();
+//            echo Psr7\str($request);
 //            if ($e->hasResponse()) {
 //                echo "\n*\n* RESPONSE\n*\n";
 //                echo Psr7\str($e->getResponse());
 //            }
+//
+//            print_r (json_decode($request->getBody()));
 //
 //            echo "\n*\n* MESSAGE\n*\n";
 //            echo $e->getMessage();
@@ -304,62 +295,26 @@ abstract class BaseGateway extends AbstractGateway
         return $response;
     }
 
-    protected function post($uri, $idempotenceKey, $queryArgs = [], $payload = null) {
-        $options = ['query' => []];
-        if ($queryArgs) $options['query'] = array_merge($options['query'], $queryArgs);
-        if ($payload) $options['json'] = $payload;
-        $options['headers'] = [
-            'Idempotence-Key' => $idempotenceKey,
-        ];
-        $options['auth'] = [$this->shopId, $this->shopPassword];
-
-        $logger = $this->getLog();
-
-        if ($logger) {
-            $logger->request('POST', $uri, $options);
-        }
-
-        $response = $this->getClient()->request('POST', $uri, $options);
-
-        if ($logger) {
-            $logger->response($response);
-        }
-
-        return $response;
+    protected function post($uri, $queryArgs = [], $payload = null) {
+        $response = $this->request('POST', $uri, $queryArgs, $payload);
+        $data = json_decode($response->getBody(), true);
+        return $data;
     }
 
     protected function get($uri, $queryArgs = [], $payload = null) {
-        $options = ['query' => []];
-        if ($queryArgs) $options['query'] = array_merge($options['query'], $queryArgs);
-        if ($payload) $options['json'] = $payload;
-        $options['auth'] = [$this->shopId, $this->shopPassword];
-
-        $logger = $this->getLog();
-
-        if ($logger) {
-            $logger->request('GET', $uri, $options);
-        }
-
-        $response = $this->getClient()->request('GET', $uri, $options);
-
-        if ($logger) {
-            $logger->response($response);
-        }
-
+        $response = $this->request('GET', $uri, $queryArgs, $payload);
         $data = json_decode($response->getBody(), true);
-
         return $data;
     }
 
     public function capture($paymentId, $value, $currency, $idempotenceKey) {
-        $response = $this->post('payments/' . $paymentId . '/capture' , $idempotenceKey, [], [
+        $data = $this->post('payments/' . $paymentId . '/capture' , $idempotenceKey, [], [
             'amount' => [
                 'value' => $value,
                 'currency' => $currency,
             ],
         ]);
 
-        $data = json_decode($response->getBody(), true);
         return $data;
     }
 

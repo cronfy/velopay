@@ -8,88 +8,77 @@
 
 namespace cronfy\velopay;
 
-use cronfy\cart\common\exceptions\EnsureSaveException;
-
+/**
+ * Invoice (счет) - необходимый элемент для работы системы процессинга платежей. Это модель,
+ * содержащая информацию о сумме и валюте платежа, которая передается в Gateway для процессинга.
+ * Также Gateway сохраняет в эту модель свою внутреннюю промежуточную информацию, необходимую ему для
+ * проведения оплаты (так как оплата может проходить в несколько этапов: создание платежа, отправка
+ * посетителя на сайт платежной системы, проверка оплаты, получение нотификации об оплате).
+ *
+ * Вы ответственны за то, чтобы создать модель с корректной суммой и валютой, сохранять её между
+ * этапами, передавать в Gateway и удалять, когда она более не требуется.
+ *
+ * В БД сохраняются поля, у сеттеров которых есть пометка @persistent в phpdoc.
+ *
+ * Interface InvoiceInterface
+ * @package cronfy\velopay
+ */
 interface InvoiceInterface
 {
     /**
-     * Должен гарантированно сохранить данные или бросить эксепшен, если не получилось.
-     * @return void
-     * @throws EnsureSaveException
+     * @persistent
+     *
+     * Здесь Gateway сохраняет данные, которые требуются ему для работы. В виде массива. Это его
+     * внутренняя информация, и на нее нельзя полагаться при работе со счетом.
+     * @param $value
+     * \ArrayAccess|array @return void
      */
-    public function ensureSave();
-
-    /**
-     * Должен гарантированно удалить данные или бросить эксепшен, если не получилось.
-     * Также должен делать так, чтобы getIsDeleted() возвращал true.
-     * @return void
-     * @throws EnsureSaveException
-     */
-    public function ensureDelete();
-
-    /**
-     * Сообщает, была ли этот объект удален из БД.
-     * @return bool
-     */
-    public function getIsDeleted();
+    public function setGatewayData($value);
 
     /**
      * Возвращает объект/массив с данными
      * @return array|\ArrayAccess
      */
     public function getGatewayData();
-
+    
     /**
-     * @param $value \ArrayAccess|array
-     * @return void
-     */
-    public function setGatewayData($value);
-
-    /**
-     * @return string
-     */
-    public function getGatewaySid();
-
-    /**
-     * @param $value string
-     * @return void
-     */
-    public function setGatewaySid($value);
-
-    /**
+     * Таким образом Gateway сообщает идентификатор, который выделила платежная система данному
+     * платежу. Он может отличаться от внутреннего (нашего) идентификатора. Требуется, когда
+     * платежная система присылает нотификацию о каком-либо платеже, и нужно найти соответствующий
+     * ему Invoice.
+     *
+     * Не является критичным для работы системы, поэтому сохранять в БД требуется только если
+     * необходима поддержка нотификаций для платежных систем, которые выделяют собственные ID
+     * платежам, а не возвращают наш внутренний ID.
+     * 
+     * Геттер отсутствует (в интерфейсе), так как шлюз сохраняет свои данные в gatewayData, а сюда
+     * просто дублирует идентификатор при его наличии, и геттер ему не нужен.
+     * 
      * @param $sid string
      * @return void
      */
-    public function setGatewayTransactionSid($sid);
-
+    public function setGatewayInvoiceSid($sid);
+    
     /**
-     * @return string
-     */
-    public function getGatewayTransactionSid();
-
-    /**
-     * Получить sid счета для внешних ссылок. Используется для сокрытия реального id.
-     * @return string
-     */
-    public function getExternalSid();
-
-    /**
-     * @param $sid string
-     * @return integer
-     */
-    public static function getIdByExternalSid($sid);
-
-    /**
+     * Должен возвращать сумму по счету.
+     * 
      * @return string
      */
     public function getAmountCurrency();
 
     /**
+     * Должен возвращать валюту суммы по счету.
+     * 
      * @return float
      */
     public function getAmountValue();
 
     /**
+     * Должен вернуть true, если переданная сумма ($value) в переданной валюте ($currency)
+     * соответствует тому, что требуется оплатить по счету. Используется при проверке поступившего
+     * платежа. Если поступившая сумма не соответствует, метод должен вернуть false и платеж будет
+     * отклонен.
+     * 
      * @param $value float
      * @param $currency string
      * @return bool
