@@ -105,6 +105,15 @@ abstract class BaseGateway extends AbstractGateway
         return $data;
     }
 
+    /**
+     * @return mixed
+     */
+    public function getPaymentInfo()
+    {
+        $payment = $this->payment($this->getInvoice()->getGatewayData()['payment_id']);
+        return $payment;
+    }
+
     public function processResponse($data) {
         $result = null;
 

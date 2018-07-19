@@ -48,6 +48,13 @@ abstract class AbstractGateway
     abstract public function start();
     abstract public function process();
 
+    /**
+     * @return mixed arbitrary data about payment by invoice
+     */
+    public function getPaymentInfo() {
+        return null;
+    }
+
     protected $_log;
     public function getLog() {
         return $this->_log;
