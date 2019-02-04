@@ -10,7 +10,7 @@ namespace cronfy\velopay\gateways;
 
 
 use cronfy\velopay\InvoiceInterface;
-use cronfy\velopay\OrderPaymentDataInterface;
+use cronfy\velopay\Middeware;
 
 abstract class AbstractGateway
 {
@@ -31,7 +31,7 @@ abstract class AbstractGateway
 
     public $status;
     public $statusDetails;
-    
+
     protected $_invoice;
     public function setInvoice(InvoiceInterface $invoice) {
         $this->_invoice = $invoice;
@@ -69,6 +69,19 @@ abstract class AbstractGateway
     }
     public function setReturnUrl($value) {
         $this->_returnUrl = $value;
+    }
+
+    /** @var Middeware */
+    public $_middleware;
+    public function setMiddleware($value) {
+        $this->_middleware = $value;
+    }
+
+    public function getMiddleware() {
+        if ($this->_middleware === null) {
+            $this->_middleware = new Middeware();
+        }
+        return $this->_middleware;
     }
 
 

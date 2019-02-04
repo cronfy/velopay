@@ -20,6 +20,8 @@ use GuzzleHttp\Psr7;
 
 abstract class BaseGateway extends AbstractGateway
 {
+    const EVENT_START_REQUEST = 'start-request';
+
     public $shopId;
     public $shopPassword;
 
@@ -54,6 +56,16 @@ abstract class BaseGateway extends AbstractGateway
                     "return_url" => $this->getReturnUrl()
                 ],
             ];
+
+            $eventResult = $this->getMiddleware()->processEvent(
+                $this,
+                static::EVENT_START_REQUEST,
+                $requestData
+            );
+            if ($eventResult) {
+                $requestData = $eventResult;
+            }
+
             if ($this->receipt) {
                 // для поддержки чеков модель Invoice должна поддерживать специфичный для
                 // YandexKassa метод getReceiptData()
