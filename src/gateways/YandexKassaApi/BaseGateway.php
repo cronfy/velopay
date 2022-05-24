@@ -241,7 +241,7 @@ abstract class BaseGateway extends AbstractGateway
         if ($this->testMode) {
             throw new Exception("Not implemented");
         }
-        return 'https://api.yookassa.ru/api/v3/';
+        return 'https://api.yookassa.ru/v3/';
     }
 
     /**
