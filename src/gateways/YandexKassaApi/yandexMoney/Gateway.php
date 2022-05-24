@@ -14,7 +14,7 @@ class Gateway extends BaseGateway {
 
     public function getPaymentMethod()
     {
-        return 'yandex_money';
+        return 'yoo_money';
     }
 
 }
